@@ -1,0 +1,63 @@
+import pandas as pd
+import numpy as np
+import yfinance as yf
+
+ticker = 'AAPL'
+start_date= "2015-01-01"
+end_date= "2025-10-31"
+data = yf.download(ticker, start=start_date, end=end_date)
+
+daily_returns= (data['Close']-data['Close'].shift(1))/data['Close'].shift(1)
+daily_returns = daily_returns.dropna()
+avg_returns= daily_returns.mean()
+std_deviation= daily_returns.std()
+rf_daily = 0.000150
+
+sharpe_ratio= (avg_returns-rf_daily)/std_deviation
+sharpe_ratio_ann = sharpe_ratio*np.sqrt(252)
+
+market_data= yf.download("^GSPC", start=start_date, end=end_date)
+market_returns= (market_data['Close']-market_data['Close'].shift(1))/market_data['Close'].shift(1)
+daily_returns = daily_returns.rename(columns={'AAPL':'daily_returns'})
+market_returns = market_returns.rename(columns ={'^GSPC':'market_returns'})
+combined= pd.concat([daily_returns,market_returns], axis=1).dropna()
+combined.columns=['daily_returns','market_returns']
+cov_matrix = combined.cov()
+beta = cov_matrix.iloc[0,1] / cov_matrix.iloc[0,1]
+cor_matrix = combined.corr()
+correlation = cov_matrix.iloc[0,1]/((cov_matrix.iloc[0,0]**0.5)*(cov_matrix.iloc[1,1]**0.5))
+
+cagr = (data['Close'].iloc[-1]/data['Close'].iloc[0])**(1/10.833)-1
+running_max = data['Close'].cummax()
+drawdowns = 1 -(data['Close']/running_max)
+max_drawdown = drawdowns.max()
+calmar_ratio = cagr/max_drawdown
+
+downside_returns = daily_returns[daily_returns<0]
+downside_dev =downside_returns.std()
+sortino_ratio = (avg_returns - rf_daily)/float(downside_dev.iloc[0])
+sortino_ratio_ann = sortino_ratio*np.sqrt(252)
+
+treynor_daily = (avg_returns - rf_daily)/beta
+Treynor_ann = treynor_daily*252
+
+om_upside = np.maximum(daily_returns - rf_daily,0)
+om_downside = np.maximum(rf_daily - daily_returns, 0)
+omega_ratio = om_upside.sum()/om_downside.sum()
+
+z = -1.645
+VaR = (avg_returns + (z*std_deviation))
+VaR_ann = (avg_returns * 252 + (z*std_deviation*np.sqrt(252)))
+
+ratios = pd.DataFrame({
+    "Sharpe Ratio": [sharpe_ratio_ann.iloc[0]],
+    "CAGR": [cagr.iloc[0]],
+    "Maximum Drawdown": [max_drawdown.iloc[0]],
+    "Calmar Ratio": [calmar_ratio.iloc[0]],
+    "Sortino Ratio": [sortino_ratio.iloc[0]],
+    "Treynor Ratio" : [Treynor_ann.iloc[0]],
+    "Omega Ratio": [omega_ratio.iloc[0]],
+    "VaR" : [VaR_ann.iloc[0]]
+    })
+from tabulate import tabulate
+print(tabulate(ratios, headers="keys", tablefmt="rounded_grid", showindex=False))
