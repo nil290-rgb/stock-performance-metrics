@@ -1,0 +1,97 @@
+import pandas as pd
+import yfinance as yf
+import numpy as np
+
+def get_data(ticker,start_date,end_date):
+  df = yf.download(ticker,start_date,end_date)
+  return df
+
+def calculate_beta(stock_returns, market_returns):
+
+    common_index = stock_returns.index.intersection(market_returns.index)
+    stock_returns = stock_returns.loc[common_index]
+    market_returns = market_returns.loc[common_index]
+
+    if len(stock_returns) == 0 or len(market_returns) == 0:
+        return np.nan
+
+    covariance = stock_returns.cov(market_returns)
+    market_variance = market_returns.var()
+
+    if market_variance == 0:
+        return np.nan
+
+    beta = covariance / market_variance
+    return beta
+
+def calculate_ratios(df, market_data):
+  ratios={}
+
+  stock_close_prices = df['Close'].squeeze()
+  daily_returns = (stock_close_prices - stock_close_prices.shift(1)) / stock_close_prices.shift(1)
+  daily_returns = daily_returns.dropna()
+
+  market_close_prices = market_data['Close'].squeeze()
+  market_returns_series = (market_close_prices - market_close_prices.shift(1)) / market_close_prices.shift(1)
+  market_returns_series = market_returns_series.dropna()
+
+  beta = calculate_beta(daily_returns, market_returns_series)
+
+  combined = pd.concat([daily_returns.rename('daily'), market_returns_series.rename('market')], axis=1).dropna()
+  correlation = combined["daily"].corr(combined["market"])
+
+  avg_returns= daily_returns.mean()
+  std_deviation= daily_returns.std()
+
+  days = (df.index[-1] - df.index[0]).days
+  years = days / 365.25
+
+  price_series = df['Close'].squeeze().dropna()
+  running_max_price = price_series.cummax()
+  drawdowns_price = 1 - (price_series / running_max_price)
+  max_drawdown = drawdowns_price.max()
+
+  downside_returns = daily_returns[daily_returns<0]
+  downside_dev =downside_returns.std()
+
+  rf_daily = 0.000150
+  z = -1.645
+  ratios['Ticker'] = t
+  sharpe_ratio= (avg_returns-rf_daily)/std_deviation if std_deviation != 0 else np.nan
+  ratios['Sharpe Ratio'] = sharpe_ratio*np.sqrt(252)
+  ratios['Beta'] = beta
+
+  cagr = (df['Close'].squeeze().iloc[-1] / df['Close'].squeeze().iloc[0])**(1/years)-1 if years > 0 else np.nan
+  ratios['CAGR'] = cagr
+
+  ratios['Max Drwadown'] = max_drawdown
+  ratios['Calmar Ratio'] = cagr/max_drawdown if max_drawdown != 0 else np.nan
+
+  sortino_ratio = (avg_returns - rf_daily)/downside_dev if downside_dev != 0 else np.nan
+  ratios['Sortino Ratio'] = sortino_ratio*np.sqrt(252)
+
+  treynor_daily = (avg_returns - rf_daily)/beta if beta != 0 else np.nan
+  ratios['Treynor Ratio'] = treynor_daily*np.sqrt(252)
+
+  om_upside = np.maximum(daily_returns - rf_daily,0)
+  om_downside = np.maximum(rf_daily - daily_returns, 0)
+  ratios['Omega Ratio']= om_upside.sum()/om_downside.sum() if om_downside.sum() != 0 else np.nan
+
+  VaR = (avg_returns + (z*std_deviation))
+  ratios['VaR'] = (avg_returns * 252 + (z*std_deviation*np.sqrt(252)))
+  return ratios
+
+
+
+start_date = "2015-01-01"
+end_date = "2025-10-31"
+tickers = ['AAPL','AMZN','MU','AMGN','TSLA']
+market_data = get_data('^GSPC', start_date, end_date)
+results = []
+for t in tickers:
+  df = get_data(t, start_date, end_date)
+  ratios = calculate_ratios(df,market_data)
+  results.append(ratios)
+final = pd.DataFrame(results)
+from tabulate import tabulate
+print(tabulate(final,headers ='keys',tablefmt ='rounded_grid', showindex=False))
